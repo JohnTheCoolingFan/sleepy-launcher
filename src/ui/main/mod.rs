@@ -89,6 +89,9 @@ pub enum AppMsg {
     SetBackgroundIndex(u8),
     SetLoadingStatus(Option<Option<String>>),
 
+    IncrementBackgroundIndex,
+    DecrementBackgroundIndex,
+
     SetDownloading(bool),
     DisableButtons(bool),
     SetKillGameButton(bool),
@@ -331,6 +334,19 @@ impl SimpleComponent for App {
 
                                     set_margin_top: 64,
                                     set_spacing: 8,
+
+                                    gtk::Box {
+                                        #[watch]
+                                        set_visible: model.style == LauncherStyle::Classic && crate::background::get_background_info_multiple().map(|bgs| bgs.len()).unwrap_or(1) > 1,
+                                        set_css_classes: &["background-switcher"],
+
+                                        gtk::Button::from_icon_name("go-previous-symbolic") {
+                                            connect_clicked => AppMsg::DecrementBackgroundIndex,
+                                        },
+                                        gtk::Button::from_icon_name("go-next-symbolic") {
+                                            connect_clicked => AppMsg::IncrementBackgroundIndex,
+                                        }
+                                    },
 
                                     adw::Bin {
                                         set_css_classes: &["background", "round-bin"],
@@ -1080,6 +1096,59 @@ impl SimpleComponent for App {
 
             AppMsg::SetBackgroundIndex(background_index) => {
                 self.background_index = background_index
+            }
+
+            AppMsg::IncrementBackgroundIndex => {
+                let max = crate::background::get_background_info_multiple().map(|bgs| bgs.len()).unwrap_or(1) - 1;
+                let mut new_background_index = self.background_index + 1;
+                if new_background_index as usize > max {
+                    new_background_index = 0
+                }
+                if self.style == LauncherStyle::Classic && !KEEP_BACKGROUND_FILE.exists() {
+                if let Err(err) = crate::background::download_background(self.use_video_background, new_background_index) {
+                    tracing::error!("Failed to download background picture: {err}");
+
+                    sender.input(AppMsg::Toast {
+                        title: tr!("background-downloading-failed"),
+                        description: Some(err.to_string())
+                    });
+                }
+                }
+
+                if let Ok(mut config) = Config::get() {
+                    config.launcher.background_index = new_background_index;
+
+                    Config::update(config);
+                }
+
+                self.background_index = new_background_index;
+            }
+
+            AppMsg::DecrementBackgroundIndex => {
+                let max = crate::background::get_background_info_multiple().map(|bgs| bgs.len()).unwrap_or(1) - 1;
+                let new_background_index = if self.background_index == 0 {
+                    max as u8
+                } else {
+                    self.background_index - 1
+                };
+                if self.style == LauncherStyle::Classic && !KEEP_BACKGROUND_FILE.exists() {
+                if let Err(err) = crate::background::download_background(self.use_video_background, new_background_index) {
+                    tracing::error!("Failed to download background picture: {err}");
+
+                    sender.input(AppMsg::Toast {
+                        title: tr!("background-downloading-failed"),
+                        description: Some(err.to_string())
+                    });
+                }
+                }
+
+                if let Ok(mut config) = Config::get() {
+                    config.launcher.background_index = new_background_index;
+
+                    Config::update(config);
+                }
+
+                self.background_index = new_background_index;
             }
 
             AppMsg::SetDownloading(state) => {
